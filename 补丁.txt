@@ -1,0 +1,98 @@
+======Visualization processing======
+=====Test=====
+
+from eralchemy import render_er
+from IPython.display import Image
+
+# 1) Generate ER diagram（PNG）
+render_er(
+    "postgresql+psycopg://postgres:password@localhost:5432/postgres", 
+    "energy_erd.png",
+    schema="energy"  # energy schema
+)
+
+# 2) Display
+Image("energy_erd.png")
+
+=====Formal=====
+
+from graphviz import Digraph
+from IPython.display import Image
+
+g = Digraph('EnergyERD', format='png')
+
+# --- global ---
+g.attr(
+    rankdir='LR', splines='ortho', concentrate='true',
+    fontname='Helvetica-Bold', fontsize='12',
+    nodesep='1.0', ranksep='1.0', pad='0.5'
+)
+
+# helper
+def rec_node(graph, name, title, fields, fill):
+    label = '{{ {} | {} }}'.format(title, '|'.join(fields))
+    graph.node(
+        name, label=label, shape='record',
+        style='filled', fillcolor=fill, color='#888888',
+        fontsize='11', fontname='Helvetica',
+        margin='0.3,0.2', width='3', height='0.5'  
+    )
+
+# --- cluster: Dimensions ---
+with g.subgraph(name='cluster_dims') as dims:
+    dims.attr(label='Dimensions', color='#BFD9FF',
+              style='filled', fillcolor='#EAF3FF')
+    rec_node(dims, 'dim_state', 'dim_state',
+             ['state_id [PK]', 'state_code', 'state_name'], '#EAF3FF')
+    rec_node(dims, 'dim_year', 'dim_year',
+             ['year_id [PK]', 'calendar_year'], '#EAF3FF')
+    rec_node(dims, 'dim_entity', 'dim_entity',
+             ['entity_id [PK]', 'reporting_entity'], '#EAF3FF')
+    rec_node(dims, 'dim_facility', 'dim_facility',
+             ['facility_id [PK]', 'facility_name', 'grid', 'state_id [FK]'], '#EAF3FF')
+    rec_node(dims, 'dim_powerstation', 'dim_powerstation',
+             ['station_id [PK]', 'name', 'postcode', 'latitude', 'longitude', 'state_id [FK]'], '#EAF3FF')
+    rec_node(dims, 'dim_project', 'dim_project',
+             ['project_id [PK]', 'project_name', 'committed_date',
+              'accreditation_start_date', 'capacity_mw', 'status', 'state_id [FK]'], '#EAF3FF')
+
+# --- cluster: Facts ---
+with g.subgraph(name='cluster_facts') as facts:
+    facts.attr(label='Facts', color='#FFE3A3',
+               style='filled', fillcolor='#FFF7E0')
+    rec_node(facts, 'fact_emissions', 'fact_emissions',
+             ['fact_id [PK]', 'entity_id [FK]', 'facility_id [FK]', 'year_id [FK]',
+              'scope1_tco2e', 'scope2_tco2e', 'total_emissions_tco2e'], '#FFF7E0')
+    rec_node(facts, 'fact_production', 'fact_production',
+             ['fact_id [PK]', 'entity_id [FK]', 'facility_id [FK]', 'year_id [FK]',
+              'electricity_production_mwh'], '#FFF7E0')
+    rec_node(facts, 'fact_intensity', 'fact_intensity',
+             ['fact_id [PK]', 'entity_id [FK]', 'facility_id [FK]', 'year_id [FK]',
+              'emission_intensity_t_per_mwh'], '#FFF7E0')
+    rec_node(facts, 'fact_abs', 'fact_abs',
+             ['fact_id [PK]', 'state_id [FK]', 'year_id [FK]',
+              'indicator_name', 'indicator_value'], '#FFF7E0')
+    rec_node(facts, 'fact_cer', 'fact_cer',
+             ['project_id [FK]', 'year_id [FK]'], '#FFF7E0')
+
+# --- edges ---
+edge_style = dict(arrowhead='normal', color='#555555', fontsize='9')
+
+for f in ['fact_emissions', 'fact_production', 'fact_intensity']:
+    g.edge(f, 'dim_entity',  xlabel='entity_id',  **edge_style)
+    g.edge(f, 'dim_facility',xlabel='facility_id',**edge_style)
+    g.edge(f, 'dim_year',    xlabel='year_id',    **edge_style)
+
+g.edge('fact_abs', 'dim_state', xlabel='state_id', **edge_style)
+g.edge('fact_abs', 'dim_year',  xlabel='year_id',  **edge_style)
+
+g.edge('fact_cer', 'dim_project', xlabel='project_id', **edge_style)
+g.edge('fact_cer', 'dim_year',    xlabel='year_id',    **edge_style)
+
+# snowflake
+g.edge('dim_facility',     'dim_state', xlabel='state_id', style='dashed', color='#999999')
+g.edge('dim_powerstation', 'dim_state', xlabel='state_id', style='dashed', color='#999999')
+g.edge('dim_project',      'dim_state', xlabel='state_id', style='dashed', color='#999999')
+
+out = g.render('energy_erd_bigger', cleanup=True)
+Image('energy_erd_bigger.png')
